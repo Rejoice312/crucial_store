@@ -1,4 +1,5 @@
 import streamlit as st
+from pathlib import Path
 from backend.db import init_db
 from backend import crud
 import pandas as pd
@@ -428,7 +429,8 @@ def main():
     init_db()
     st.set_page_config(page_title="Crucial Clothing Store", layout="wide")
 
-    with open("frontend/styles.css") as f:
+    style_path = Path(__file__).resolve().parent / "styles.css"
+    with open(style_path) as f:
         st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
     header_html = '''
