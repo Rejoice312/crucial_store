@@ -15,26 +15,20 @@ the app should have:
     * description: varchar(200) can be null
     * stock_qty: int
   * transactions:
-    * id: primary key, autoincremet
-    * product_id referencing products(id)
-    * qaunitity int
-    * amount decimal(12, 2)
-    * type: must be any of ('Sales', 'Purchases')
-  * expenses:
     * id: primary key, autoincrement
-    * category: must be any of ('Transportation', 'Charges', )
+    * product_id: references products(id), nullable for non-inventory items
+    * category: must be one of ('Sales', 'Purchases', 'Wages', 'Loan Repayment', 'Lending', 'Other Expenses', 'Capital', 'Other Income', 'Transportation', 'Maintenance')
+    * flow_type: must be 'Inflow' or 'Outflow', automatically derived by category
+    * quantity: int, default 0
     * amount: decimal(12, 2)
-
-the frontend should allow the business to be able to perform crud operations through forms to
-mangae its data, select boxes and other forms data validation should be used, e.g., user cant
-add a sale for a product not existing or out of stock, error feedback to user should be implemented
-where necessary
+    * description: text
+    * date: default current date
 
 # business logic
-* purchases and sales should update products stock_qty
-
+* sales and purchases update products stock_qty when tied to inventory
+* flow type is determined internally from the transaction category and is not selected by the user
 
 # Analysis
-relevant charts and tables with kpi cards shoud be included in the dashboard section.
+relevant charts and tables with kpi cards should be included in the dashboard section.
 
 use pages and tabs to diffrencitate sections

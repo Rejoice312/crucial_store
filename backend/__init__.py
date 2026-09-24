@@ -7,7 +7,7 @@ from .crud import (
     get_product_by_id,
     add_transaction,
     get_transactions,
-    add_expense,
-    get_expenses,
     get_kpis,
+    get_transaction_flow_type,
+    VALID_TRANSACTION_CATEGORIES,
 )
