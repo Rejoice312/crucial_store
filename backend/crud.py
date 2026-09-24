@@ -1,6 +1,17 @@
 from typing import List, Dict, Any, Optional
 from .db import get_conn
 
+
+def _row_to_dict(row: Any, cursor: Any = None) -> Optional[Dict[str, Any]]:
+    if row is None:
+        return None
+    if hasattr(row, 'keys'):
+        return dict(row)
+    if cursor is not None and cursor.description:
+        return {description[0]: value for description, value in zip(cursor.description, row)}
+    return dict(row)
+
+
 VALID_TRANSACTION_CATEGORIES = {
     'Sales',
     'Purchases',
@@ -62,14 +73,14 @@ def delete_product(product_id: int) -> None:
 def get_products() -> List[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.execute("SELECT * FROM products ORDER BY id DESC")
-    return [dict(r) for r in cur.fetchall()]
+    return [_row_to_dict(row, cur) for row in cur.fetchall()]
 
 
 def get_product_by_id(product_id: int) -> Optional[Dict[str, Any]]:
     conn = get_conn()
     cur = conn.execute("SELECT * FROM products WHERE id=?", (product_id,))
     row = cur.fetchone()
-    return dict(row) if row else None
+    return _row_to_dict(row, cur) if row else None
 
 
 def add_transaction(
@@ -139,7 +150,7 @@ def get_transactions() -> List[Dict[str, Any]]:
     cur = conn.execute(
         "SELECT t.*, p.name as product_name FROM transactions t LEFT JOIN products p ON t.product_id = p.id ORDER BY t.date DESC, t.created_at DESC"
     )
-    return [dict(r) for r in cur.fetchall()]
+    return [_row_to_dict(row, cur) for row in cur.fetchall()]
 
 
 def delete_transaction(tx_id: int) -> None:

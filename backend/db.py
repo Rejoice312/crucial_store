@@ -1,10 +1,13 @@
 import sqlite3
 from pathlib import Path
-from config import debug
-import numpy as np
 from datetime import datetime, timedelta
 
-DB_PATH = Path(__file__).resolve().parent.parent / "crucial.db"
+import numpy as np
+from config import debug, DB_CONN_STRING
+
+if not debug:
+    import sqlitecloud
+
 VALID_TRANSACTION_CATEGORIES = {
     'Sales',
     'Purchases',
@@ -20,11 +23,16 @@ VALID_TRANSACTION_CATEGORIES = {
 INFLOW_TRANSACTION_CATEGORIES = {'Sales', 'Loan Repayment', 'Other Income', 'Capital'}
 
 
-def get_conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+def get_conn():
+    if debug:
+        # debug=True -> local SQLite file path stored in DB_CONN_STRING
+        conn = sqlite3.connect(DB_CONN_STRING)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    # debug=False -> SQLite Cloud connection string stored in DB_CONN_STRING
+    return sqlitecloud.connect(DB_CONN_STRING)
 
 
 def get_transaction_flow_type(category: str) -> str:
@@ -36,6 +44,9 @@ def get_transaction_flow_type(category: str) -> str:
 
 def create_tables() -> None:
     """Load schema from crucial.sql file"""
+    if not debug:
+        return
+
     schema_path = Path(__file__).resolve().parent.parent / "crucial.sql"
     with open(schema_path, 'r') as f:
         sql = f.read()
@@ -53,12 +64,22 @@ def _has_required_tables(conn: sqlite3.Connection) -> bool:
 
 def init_db() -> None:
     """Initialize DB and rebuild the schema if the required tables are missing."""
-    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    if not debug:
+        conn = get_conn()
+        try:
+            conn.execute("SELECT 1").fetchone()
+        except Exception as exc:
+            raise RuntimeError(f"Failed to connect to SQLite Cloud database: {exc}") from exc
+        finally:
+            conn.close()
+        return
 
-    if not DB_PATH.exists():
+    db_file = Path(DB_CONN_STRING)
+    db_file.parent.mkdir(parents=True, exist_ok=True)
+
+    if not db_file.exists():
         create_tables()
-        if debug:
-            _seed_sample_data()
+        _seed_sample_data()
         return
 
     conn = get_conn()
@@ -68,10 +89,9 @@ def init_db() -> None:
             conn.execute("DROP TABLE IF EXISTS products")
         create_tables()
 
-    if debug:
-        product_count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
-        if product_count == 0:
-            _seed_sample_data()
+    product_count = conn.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+    if product_count == 0:
+        _seed_sample_data()
 
 
 def _seed_sample_data() -> None:
