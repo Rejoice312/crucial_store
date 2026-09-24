@@ -149,19 +149,43 @@ def dashboard():
 
 def products_page():
     st.header('Products')
-    with st.expander('Add product'):
+    if 'show_add_product_form' not in st.session_state:
+        st.session_state.show_add_product_form = False
+    if 'product_edit_id' not in st.session_state:
+        st.session_state.product_edit_id = None
+
+    row = st.columns([1, 1])
+    if row[0].button('Add product', use_container_width=True):
+        st.session_state.show_add_product_form = not st.session_state.show_add_product_form
+
+    if st.session_state.show_add_product_form:
         with st.form('add_prod'):
             name = st.text_input('Name', max_chars=20)
             desc = st.text_area('Description', max_chars=200)
             qty = st.number_input('Stock quantity', min_value=0, value=0)
             submitted = st.form_submit_button('Add')
             if submitted:
-                if not name:
-                    st.error('Name required')
-                else:
-                    crud.add_product(name, desc, int(qty))
+                try:
+                    cleaned_name = name.strip()
+                    if not cleaned_name:
+                        raise ValueError('name_required')
+                    if len(cleaned_name) > 20:
+                        raise ValueError('name_too_long')
+                    if crud.get_products() and any(p['name'].strip().lower() == cleaned_name.lower() for p in crud.get_products()):
+                        raise ValueError('duplicate_product_name')
+                    crud.add_product(cleaned_name, desc.strip() if desc is not None else None, int(qty))
+                    st.session_state.show_add_product_form = False
                     st.success('Product added')
                     st.rerun()
+                except ValueError as exc:
+                    if str(exc) == 'name_required':
+                        st.error('Name is required.')
+                    elif str(exc) == 'name_too_long':
+                        st.error('Name must be 20 characters or fewer.')
+                    elif str(exc) == 'duplicate_product_name':
+                        st.error('A product with this name already exists.')
+                    else:
+                        st.error(f'Error adding product: {exc}')
 
     prods = crud.get_products()
     search_term = st.text_input('Search products', placeholder='Search by name or description')
@@ -192,7 +216,7 @@ def products_page():
                 st.success(f'Deleted product {p["name"]}')
                 st.rerun()
 
-    if 'product_edit_id' in st.session_state:
+    if st.session_state.get('product_edit_id') is not None:
         edit_id = st.session_state['product_edit_id']
         product = crud.get_product_by_id(edit_id)
         if product:
@@ -203,16 +227,35 @@ def products_page():
                 qq = st.number_input('Stock quantity', min_value=0, value=product['stock_qty'])
                 ok = st.form_submit_button('Update')
                 if ok:
-                    crud.update_product(edit_id, nn, dd, int(qq))
-                    st.success('Updated product')
-                    del st.session_state['product_edit_id']
-                    st.rerun()
+                    try:
+                        cleaned_name = nn.strip()
+                        if not cleaned_name:
+                            raise ValueError('name_required')
+                        if len(cleaned_name) > 20:
+                            raise ValueError('name_too_long')
+                        if any(p['id'] != edit_id and p['name'].strip().lower() == cleaned_name.lower() for p in crud.get_products()):
+                            raise ValueError('duplicate_product_name')
+                        crud.update_product(edit_id, cleaned_name, dd.strip() if dd is not None else None, int(qq))
+                        st.success('Updated product')
+                        del st.session_state['product_edit_id']
+                        st.rerun()
+                    except ValueError as exc:
+                        if str(exc) == 'name_required':
+                            st.error('Name is required.')
+                        elif str(exc) == 'name_too_long':
+                            st.error('Name must be 20 characters or fewer.')
+                        elif str(exc) == 'duplicate_product_name':
+                            st.error('A product with this name already exists.')
+                        else:
+                            st.error(f'Error updating product: {exc}')
 
 
 def transactions_page():
     st.header('Transactions')
     prods = crud.get_products()
 
+    if 'show_tx_form' not in st.session_state:
+        st.session_state.show_tx_form = False
     if 'tx_step' not in st.session_state:
         st.session_state.tx_step = 'basic'
     if 'pending_category' not in st.session_state:
@@ -222,7 +265,12 @@ def transactions_page():
     if 'pending_date' not in st.session_state:
         st.session_state.pending_date = date.today().isoformat()
 
-    with st.expander('Add transaction'):
+    if st.button('Add transaction', use_container_width=True):
+        st.session_state.show_tx_form = not st.session_state.show_tx_form
+        if not st.session_state.show_tx_form:
+            st.session_state.tx_step = 'basic'
+
+    if st.session_state.show_tx_form:
         if st.session_state.tx_step == 'basic':
             with st.form('add_tx_basic'):
                 category = st.selectbox('Category', options=sorted(crud.VALID_TRANSACTION_CATEGORIES), key='tx_basic_category')
@@ -240,8 +288,9 @@ def transactions_page():
                     else:
                         try:
                             crud.add_transaction(None, 0, float(amount), category, date=date_value.isoformat())
-                            st.success('Transaction added')
+                            st.session_state.show_tx_form = False
                             st.session_state.tx_step = 'basic'
+                            st.success('Transaction added')
                             st.rerun()
                         except ValueError as exc:
                             st.error(f'Error adding transaction: {exc}')
@@ -250,7 +299,10 @@ def transactions_page():
             with st.form('add_tx_inventory'):
                 if not prods:
                     st.warning('Create a product before adding a sale or purchase.')
-                    st.form_submit_button('Back', on_click=lambda: st.session_state.__setitem__('tx_step', 'basic'))
+                    if st.form_submit_button('Back'):
+                        st.session_state.tx_step = 'basic'
+                        st.session_state.show_tx_form = False
+                        st.rerun()
                 else:
                     psel = st.selectbox('Product', options=[p['name'] for p in prods], index=0, key='tx_inventory_product')
                     qty = st.number_input('Quantity', min_value=1, value=1, key='tx_inventory_quantity')
@@ -258,6 +310,7 @@ def transactions_page():
                     row = st.columns(2)
                     if row[0].form_submit_button('Back'):
                         st.session_state.tx_step = 'basic'
+                        st.session_state.show_tx_form = False
                         st.rerun()
                     if row[1].form_submit_button('Save Transaction'):
                         pid = next(p['id'] for p in prods if p['name'] == psel)
@@ -269,8 +322,9 @@ def transactions_page():
                                 st.session_state.pending_category,
                                 date=st.session_state.pending_date,
                             )
-                            st.success('Transaction added')
                             st.session_state.tx_step = 'basic'
+                            st.session_state.show_tx_form = False
+                            st.success('Transaction added')
                             st.rerun()
                         except ValueError as exc:
                             if str(exc) == 'product_not_found':

@@ -12,7 +12,7 @@ CREATE TABLE transactions (
     product_id INTEGER,
     category TEXT NOT NULL CHECK(category IN ('Sales', 'Purchases', 'Wages', 'Loan Repayment', 'Lending', 'Other Expenses', 'Capital', 'Other Income', 'Transportation', 'Maintenance')),
     flow_type TEXT NOT NULL CHECK(flow_type IN ('Inflow', 'Outflow')),
-    quantity INTEGER NOT NULL DEFAULT 0,
+    quantity INTEGER,
     amount REAL NOT NULL,
     description TEXT,
     date TEXT DEFAULT (DATE('now')),

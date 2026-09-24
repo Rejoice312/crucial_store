@@ -1,4 +1,4 @@
-debug = False
+debug = True
 
 if debug:
     DB_CONN_STRING = 'crucial.db'

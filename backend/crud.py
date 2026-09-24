@@ -2,6 +2,55 @@ from typing import List, Dict, Any, Optional
 from .db import get_conn
 
 
+def _normalize_text(value: Any, *, field_name: str, max_length: Optional[int] = None, required: bool = False) -> Optional[str]:
+    if value is None:
+        if required:
+            raise ValueError(f"{field_name}_required")
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+    else:
+        text = str(value).strip()
+
+    if required and not text:
+        raise ValueError(f"{field_name}_required")
+    if max_length is not None and len(text) > max_length:
+        raise ValueError(f"{field_name}_too_long")
+    return text
+
+
+def _validate_integer(value: Any, *, field_name: str, minimum: int = 0, required: bool = True) -> int:
+    if value is None or value == '':
+        if required:
+            raise ValueError(f"{field_name}_required")
+        return 0
+    if isinstance(value, bool):
+        raise ValueError(f"invalid_{field_name}")
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"invalid_{field_name}")
+    if number < minimum:
+        raise ValueError(f"invalid_{field_name}")
+    return number
+
+
+def _validate_decimal(value: Any, *, field_name: str, minimum: float = 0.0, required: bool = True) -> float:
+    if value is None or value == '':
+        if required:
+            raise ValueError(f"{field_name}_required")
+        return 0.0
+    if isinstance(value, bool):
+        raise ValueError(f"invalid_{field_name}")
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        raise ValueError(f"invalid_{field_name}")
+    if number < minimum:
+        raise ValueError(f"invalid_{field_name}")
+    return round(number, 2)
+
+
 def _row_to_dict(row: Any, cursor: Any = None) -> Optional[Dict[str, Any]]:
     if row is None:
         return None
@@ -35,31 +84,43 @@ def get_transaction_flow_type(category: str) -> str:
 
 
 def add_product(name: str, description: Optional[str], stock_qty: int) -> int:
-    if not name or not name.strip():
-        raise ValueError("name_required")
-    if stock_qty < 0:
-        raise ValueError("invalid_stock")
+    cleaned_name = _normalize_text(name, field_name='name', max_length=20, required=True)
+    cleaned_description = _normalize_text(description, field_name='description', max_length=200) if description is not None else None
+    cleaned_qty = _validate_integer(stock_qty, field_name='stock_qty', minimum=0)
 
     conn = get_conn()
     with conn:
+        existing = conn.execute(
+            "SELECT id FROM products WHERE LOWER(name) = LOWER(?)",
+            (cleaned_name,),
+        ).fetchone()
+        if existing:
+            raise ValueError('duplicate_product_name')
+
         cur = conn.execute(
             "INSERT INTO products (name, description, stock_qty) VALUES (?, ?, ?)",
-            (name.strip()[:20], description[:200] if description else None, stock_qty),
+            (cleaned_name, cleaned_description, cleaned_qty),
         )
         return cur.lastrowid
 
 
 def update_product(product_id: int, name: str, description: Optional[str], stock_qty: int) -> None:
-    if not name or not name.strip():
-        raise ValueError("name_required")
-    if stock_qty < 0:
-        raise ValueError("invalid_stock")
+    cleaned_name = _normalize_text(name, field_name='name', max_length=20, required=True)
+    cleaned_description = _normalize_text(description, field_name='description', max_length=200) if description is not None else None
+    cleaned_qty = _validate_integer(stock_qty, field_name='stock_qty', minimum=0)
 
     conn = get_conn()
     with conn:
+        existing = conn.execute(
+            "SELECT id FROM products WHERE LOWER(name) = LOWER(?) AND id != ?",
+            (cleaned_name, product_id),
+        ).fetchone()
+        if existing:
+            raise ValueError('duplicate_product_name')
+
         conn.execute(
             "UPDATE products SET name=?, description=?, stock_qty=? WHERE id=?",
-            (name.strip()[:20], description[:200] if description else None, stock_qty, product_id),
+            (cleaned_name, cleaned_description, cleaned_qty, product_id),
         )
 
 
@@ -91,14 +152,25 @@ def add_transaction(
     description: Optional[str] = None,
     date: str | None = None,
 ) -> int:
-    normalized_category = (category or '').strip()
+    normalized_category = _normalize_text(category, field_name='category', required=True)
     if normalized_category not in VALID_TRANSACTION_CATEGORIES:
         raise ValueError("invalid_category")
-    if amount < 0:
+    if amount is None:
         raise ValueError("invalid_amount")
+    cleaned_amount = _validate_decimal(amount, field_name='amount', minimum=0.0)
+
+    if description is not None:
+        description_text = _normalize_text(description, field_name='description', max_length=200)
+    else:
+        description_text = None
+
+    if date is not None:
+        cleaned_date = _normalize_text(date, field_name='date', required=True)
+    else:
+        cleaned_date = None
 
     flow_type = get_transaction_flow_type(normalized_category)
-    normalized_quantity = int(quantity or 0)
+    normalized_quantity = _validate_integer(quantity, field_name='quantity', minimum=0, required=False)
 
     if normalized_category in {'Sales', 'Purchases'}:
         if product_id is None:
@@ -127,20 +199,15 @@ def add_transaction(
 
             conn.execute("UPDATE products SET stock_qty=? WHERE id=?", (new_stock, product_id))
 
-        if description:
-            description_text = description.strip()[:200]
-        else:
-            description_text = None
-
-        if date:
+        if cleaned_date:
             cur = conn.execute(
                 "INSERT INTO transactions (product_id, category, flow_type, quantity, amount, description, date) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (product_id, normalized_category, flow_type, normalized_quantity, round(float(amount), 2), description_text, date),
+                (product_id, normalized_category, flow_type, normalized_quantity, cleaned_amount, description_text, cleaned_date),
             )
         else:
             cur = conn.execute(
                 "INSERT INTO transactions (product_id, category, flow_type, quantity, amount, description) VALUES (?, ?, ?, ?, ?, ?)",
-                (product_id, normalized_category, flow_type, normalized_quantity, round(float(amount), 2), description_text),
+                (product_id, normalized_category, flow_type, normalized_quantity, cleaned_amount, description_text),
             )
         return cur.lastrowid
 
